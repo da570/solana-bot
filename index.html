@@ -209,8 +209,10 @@ const qty = v => v >= 1000 ? v.toLocaleString(undefined, {maximumFractionDigits:
 const when = ts => new Date(ts * 1000).toLocaleString(undefined, {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"});
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-const NAMES = {trend: "Trend", grid: "Grid", arbitrage: "Arbitrage", sniper: "Sniper", fee_reserve: "Fee reserve"};
-const SIDES = {buy: ["Bought", "--series-1"], sell: ["Sold", "--series-2"], arb: ["Arbitrage", "--series-3"]};
+const NAMES = {trend: "Trend", grid: "Grid", perps: "Sweep (Hyperliquid)", arbitrage: "Arbitrage", sniper: "Sniper", pumpfun: "pump.fun", fee_reserve: "Fee reserve"};
+const SIDES = {buy: ["Bought", "--series-1"], sell: ["Sold", "--series-2"], arb: ["Arbitrage", "--series-3"],
+  long: ["Long", "--series-1"], short: ["Short", "--series-2"], "close long": ["Closed long", "--series-2"], "close short": ["Closed short", "--series-1"]};
+const SHAPE = {long: "buy", "close short": "buy", short: "sell", "close long": "sell"};
 let data = null, shown = 30;
 
 function ago(ts) {
@@ -224,6 +226,7 @@ function coin(sym) {
 }
 function marker(kind, cx, cy, color, ring) {
   const s = 5;
+  kind = SHAPE[kind] || kind;
   const shape = kind === "buy" ? `M${cx} ${cy - s - 1}L${cx + s} ${cy + s - 1}L${cx - s} ${cy + s - 1}Z`
     : kind === "sell" ? `M${cx} ${cy + s + 1}L${cx + s} ${cy - s + 1}L${cx - s} ${cy - s + 1}Z`
     : `M${cx} ${cy - s}L${cx + s} ${cy}L${cx} ${cy + s}L${cx - s} ${cy}Z`;
@@ -237,12 +240,18 @@ function side(s) { return `<span class="side">${icon(s)}${(SIDES[s] || [s])[0]}<
 function venue(v) { return v ? esc(v.replace(" -> ", " → ")) : `<span class="small">Jupiter</span>`; }
 
 function scanner(name) {
-  const a = data.arb_last, s = data.sniper_last;
+  const a = data.arb_last, s = name === "pumpfun" ? data.pumpfun_last : data.sniper_last;
+  if (name === "perps") {
+    const coins = data.sweep_coins ? data.sweep_coins.coins : [];
+    const orders = Object.entries(data.sweep_orders || {}).map(([c, o]) => `<li>${o.side === "long" ? "Buy" : "Sell short"} <b>${esc(c)}</b> at ${price(o.entry)} (${esc(o.array)}), stop ${price(o.stop)}, target ${price(o.target)}</li>`).join("");
+    return `<p class="note"><b>Coins passing your filters today:</b> ${coins.length ? coins.map(esc).join(", ") : "none yet"}.</p>` +
+      (orders ? `<p class="note">Waiting entry orders:</p><ul class="rules">${orders}</ul>` : `<p class="note">No entry order waiting. It waits for a sweep and a shift in structure.</p>`);
+  }
   if (name === "arbitrage" && a) {
     const word = a.gap_usd >= 0 ? "profit" : "loss";
     return `<p class="note"><b>Last check</b> (${ago(a.at)}): best chance was ${esc(a.symbol)}, buy on ${esc(a.buy_dex)} and sell on ${esc(a.sell_dex)}. That would be a ${word} of ${usd(Math.abs(a.gap_usd))} on ${usd(a.trade_usd)} after fees${a.gap_usd >= 0 ? "" : ", so it did not trade"}.</p>`;
   }
-  if (name === "sniper" && s) {
+  if ((name === "sniper" || name === "pumpfun") && s) {
     const reasons = Object.entries(s.reasons || {}).map(([r, n]) => `<li>${esc(r)}${n > 1 ? " (" + n + ")" : ""}</li>`).join("");
     const result = s.bought ? `bought <b>${esc(s.bought)}</b>` : s.note ? esc(s.note) : "bought nothing";
     return `<p class="note"><b>Last scan</b> (${ago(s.at)}): found ${s.found} busy young coins, checked ${s.checked}, ${result}.</p>` +
@@ -291,7 +300,7 @@ function render(d) {
   drawDaily();
 
   $("positions").innerHTML = d.positions.length ? `<div class="tablewrap"><table><tr><th>Coin</th><th>Exchange</th><th class="num">Bought at</th><th class="num">Now</th><th class="num">Stop</th><th class="num">Profit</th></tr>` +
-    d.positions.map(p => `<tr><td>${coin(p.symbol)}<div class="small">${esc(NAMES[p.strategy] || p.strategy)} · ${ago(p.opened_at)}</div></td><td>${venue(p.venue)}</td><td class="num">${price(p.entry)}</td><td class="num">${price(p.now)}</td><td class="num">${p.stop ? price(p.stop) : "–"}</td><td class="num"><span class="${plClass(p.pnl)}">${usd(p.pnl, true)}</span><div class="small">${usd(p.qty * p.now)}</div></td></tr>`).join("") + `</table></div>`
+    d.positions.map(p => `<tr><td>${coin(p.symbol)}${p.side ? ` <b>${p.side.toUpperCase()}</b>` : ""}<div class="small">${esc(NAMES[p.strategy] || p.strategy)} · ${ago(p.opened_at)}</div></td><td>${venue(p.venue)}</td><td class="num">${price(p.entry)}</td><td class="num">${price(p.now)}</td><td class="num">${p.stop ? price(p.stop) : "–"}</td><td class="num"><span class="${plClass(p.pnl)}">${usd(p.pnl, true)}</span><div class="small">${usd(p.qty * p.now)}</div></td></tr>`).join("") + `</table></div>`
     : `<p class="empty">No open positions. All money is waiting in USDC.</p>`;
 
   fillSelect("fStrat", "All strategies", [...new Set(d.trades.map(t => t.strategy))], s => NAMES[s] || s);
