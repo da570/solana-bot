@@ -264,6 +264,9 @@ pre { white-space: pre-wrap; font-size: 12px; margin: 8px 0 0; }
     <p class="sub">Decisions above the single strategies: the market's mood, which strategies are resting, and the bot's chance of a big loss in the next 30 days (from thousands of simulated futures).</p>
     <div class="tiles" id="brainTiles"></div>
     <div id="brainNotes" class="small" style="margin-top:10px"></div>
+    <h3>Coin checks: was each decision right?</h3>
+    <p class="small">Every new coin the sniper and pump.fun looked at, priced again 24 hours later. Skipped coins that mostly fell = the filter saved money; skipped coins that doubled = it cost a win.</p>
+    <div class="tablewrap" id="shadowTable"></div>
   </section>
 
   <section class="card reveal">
@@ -512,7 +515,9 @@ function render(d) {
     `If its money falls below ${usd(d.death_threshold)}, it sells what it can, writes a death report, and never runs again.`,
   ].map(r => `<li>${r}</li>`).join("");
 
-  $("updated").textContent = `Bot data from ${ago(d.now)} · this page refreshes every ${PUBLIC ? "minute" : "15 seconds"}` + (PUBLIC ? " · view only" : "");
+  const hl = d.health;
+  $("updated").textContent = `Bot data from ${ago(d.now)} · this page refreshes every ${PUBLIC ? "minute" : "15 seconds"}` + (PUBLIC ? " · view only" : "") +
+    (hl ? ` · version ${hl.version} · running ${hours((d.now - hl.started_at) / 3600)} · ${hl.ticks} checks, ${hl.failed} failed` : "");
   firstRender = false;
 }
 
@@ -602,6 +607,12 @@ function renderBrain() {
       (top ? ` · best: ${top}` : sm.coins_graded ? "" : " · it needs a few days of watching before any wallet counts") + ".");
   }
   $("brainNotes").innerHTML = notes.map(n => `<p>${n}</p>`).join("");
+  const sh = data.shadow || [];
+  $("shadowTable").innerHTML = sh.length ? `<table><tr><th>Decision</th><th class="num">Coins</th><th class="num">After 24 h</th><th class="num">Doubled</th><th class="num">Halved</th></tr>` +
+    sh.map(r => `<tr><td><span class="side">${swatch(r.strategy)}${esc(NAMES[r.strategy] || r.strategy)}</span><div class="small">${r.verdict === "bought" ? "<b>bought</b>" : "skipped: " + esc(r.verdict.replace(/#/g, "X"))}</div></td>
+      <td class="num">${r.coins}</td><td class="num">${r.median_x24 == null ? `<span class="small">waiting</span>` : `<span class="${plClass(r.median_x24 - 1)}">${pct(r.median_x24 - 1)}</span>`}</td>
+      <td class="num">${r.judged ? r.doubled : "–"}</td><td class="num">${r.judged ? r.halved : "–"}</td></tr>`).join("") + `</table>`
+    : `<p class="empty">No coins checked yet since this was added.</p>`;
 }
 
 function renderFeed() {
