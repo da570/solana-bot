@@ -259,6 +259,13 @@ pre { white-space: pre-wrap; font-size: 12px; margin: 8px 0 0; }
     <div id="strats" style="margin-top:8px"></div>
   </section>
 
+  <section class="card reveal span-2">
+    <h2>The brain</h2>
+    <p class="sub">Decisions above the single strategies: the market's mood, which strategies are resting, and the bot's chance of a big loss in the next 30 days (from thousands of simulated futures).</p>
+    <div class="tiles" id="brainTiles"></div>
+    <div id="brainNotes" class="small" style="margin-top:10px"></div>
+  </section>
+
   <section class="card reveal">
     <h2>What the bot is doing now</h2>
     <p class="sub">The latest scan of each strategy.</p>
@@ -471,6 +478,7 @@ function render(d) {
   drawDrawdown();
   drawFlow();
   renderStrategies();
+  renderBrain();
   renderFeed();
   renderPositions();
 
@@ -546,7 +554,7 @@ function renderStrategies() {
   $("leader").innerHTML = `<table><tr><th>Strategy</th><th class="num">Trades</th><th class="num">Win rate</th><th class="num">Result</th></tr>` +
     rows.map(s => {
       const k = stats[s.name];
-      return `<tr><td><span class="side">${swatch(s.name)}${esc(NAMES[s.name] || s.name)}</span>${s.enabled ? "" : `<span class="tag">off</span>`}<div class="small">${Math.round(s.share * 100)}% · ${usd(s.budget)}</div></td>
+      return `<tr><td><span class="side">${swatch(s.name)}${esc(NAMES[s.name] || s.name)}</span>${s.enabled ? "" : `<span class="tag">off</span>`}${s.resting ? `<span class="tag">resting</span>` : ""}<div class="small">${Math.round(s.share * 100)}% · ${usd(s.budget)}</div></td>
         <td class="num">${k ? k.closed : 0}</td><td class="num">${k && k.closed ? Math.round(k.wins / k.closed * 100) + "%" : "–"}</td>
         <td class="num"><span class="${plClass(s.pnl)}">${usd(s.pnl, true)}</span><div class="small">${k && k.profit_factor ? "PF " + k.profit_factor.toFixed(2) : ""}</div></td></tr>`;
     }).join("") + `</table>`;
@@ -565,6 +573,35 @@ function renderStrategies() {
       <p class="note">${esc(s.explain)}</p>${extra}${scan ? `<div class="note">${scan.html}</div>` : ""}</details>`;
   }).join("");
   requestAnimationFrame(() => $("strats").querySelectorAll(".meter span").forEach(m => m.style.width = m.dataset.w + "%"));
+}
+
+function renderBrain() {
+  const b = data.brain;
+  if (!b || !b.enabled) { $("brainTiles").innerHTML = ""; $("brainNotes").innerHTML = `<p class="empty">The brain is off.</p>`; return; }
+  const m = b.mood, o = b.odds || {}, chance = v => v == null ? "–" : v < 0.001 ? "under 0.1%" : (v * 100).toFixed(1) + "%";
+  const sim = o.fan ? o.fan[o.fan.length - 1] : null;
+  $("brainTiles").innerHTML = [
+    ["Market mood", m ? esc(m.mood) : "checking…"],
+    ["Resting", b.resting.length ? b.resting.map(n => esc(NAMES[n] || n)).join(", ") : "none"],
+    ["Chance of dying (30 d)", o.waiting ? "–" : chance(o.p_death)],
+    ["Chance of −25% (30 d)", o.waiting ? "–" : chance(o.p_drop25)],
+    ["Chance of −50% (30 d)", o.waiting ? "–" : chance(o.p_drop50)],
+    ["Trade sizes", Math.round((b.risk_scale ?? 1) * 100) + "% of normal"],
+    ["Likely in 30 days", sim ? `${usd(sim[1]).replace(/\.\d+$/, "")} – ${usd(sim[3]).replace(/\.\d+$/, "")}` : "–"],
+    ["Mood checked", m ? ago(m.at) : "–"],
+  ].map(([l, v]) => `<div class="tile"><div class="label">${l}</div><div class="value" style="font-size:15px">${v}</div></div>`).join("");
+  const notes = [];
+  if (m) notes.push(`SOL 4-hour chart: straightness ${m.efficiency} (above 0.30 = trending, below 0.15 = sideways), moves ${m.volatility_ratio}x their usual size, ${pct(m.change_24h)} in 24 h, price ${m.above_trend ? "above" : "below"} its 50-candle average.`);
+  if (o.waiting) notes.push(`Death odds: ${esc(o.waiting)}.`);
+  else if (o.days_of_data) notes.push(`Death odds built from ${o.days_of_data} days of the bot's own results; refreshed daily.`);
+  Object.entries(b.paused_until || {}).forEach(([n, t]) => notes.push(`${esc(NAMES[n] || n)} is paused after losing too much, back ${new Date(t * 1000).toLocaleDateString()}.`));
+  const sm = data.smart_money;
+  if (sm) {
+    const top = (sm.top || []).slice(0, 5).map(w => `<a href="https://solscan.io/account/${encodeURIComponent(w.wallet)}" target="_blank" rel="noopener">${esc(w.wallet.slice(0, 4) + "…" + w.wallet.slice(-4))}</a> ${w.wins}–${w.losses}`).join(", ");
+    notes.push(`Smart wallets: watched ${sm.coins_watched} new coins (${sm.coins_graded} judged), knows ${sm.wallets} wallets, ${sm.smart} count as smart` +
+      (top ? ` · best: ${top}` : sm.coins_graded ? "" : " · it needs a few days of watching before any wallet counts") + ".");
+  }
+  $("brainNotes").innerHTML = notes.map(n => `<p>${n}</p>`).join("");
 }
 
 function renderFeed() {
